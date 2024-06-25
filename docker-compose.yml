@@ -1,0 +1,7 @@
+version: "3.5"
+services:
+  pokemonredexperiments:
+    image: joshhsoj1902/pokemonredexperiments:latest
+    volumes:
+      - ./:/pokemon
+    restart: always

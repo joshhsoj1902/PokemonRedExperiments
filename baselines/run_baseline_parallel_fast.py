@@ -4,10 +4,11 @@ import uuid
 from red_gym_env import RedGymEnv
 from stable_baselines3 import PPO
 from stable_baselines3.common import env_checker
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, DummyVecEnv
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
 from tensorboard_callback import TensorboardCallback
+from stream_agent_wrapper import StreamWrapper
 
 def make_env(rank, env_conf, seed=0):
     """
@@ -17,8 +18,25 @@ def make_env(rank, env_conf, seed=0):
     :param seed: (int) the initial seed for RNG
     :param rank: (int) index of the subprocess
     """
+
+    # def _init():
+    #     env = RedGymEnv(env_conf)
+    #     env.reset(seed=(seed + rank))
+    #     return env
+    # set_random_seed(seed)
+    # return _init
+
+
     def _init():
-        env = RedGymEnv(env_conf)
+        env = StreamWrapper(
+            RedGymEnv(env_conf),
+            stream_metadata = {
+                "user": "joshhsoj1902",
+                "env_id": rank,
+                "color": "#f5bf42",
+                "extra": "", # any extra text you put here will be displayed
+            }
+        )
         env.reset(seed=(seed + rank))
         return env
     set_random_seed(seed)
@@ -33,21 +51,22 @@ if __name__ == '__main__':
 
     env_config = {
                 'headless': True, 'save_final_state': True, 'early_stop': False,
-                'action_freq': 24, 'init_state': '../has_pokedex_nballs.state', 'max_steps': ep_length, 
-                'print_rewards': True, 'save_video': False, 'fast_video': True, 'session_path': sess_path,
-                'gb_path': '../PokemonRed.gb', 'debug': False, 'sim_frame_dist': 2_000_000.0, 
+                'action_freq': 24, 'init_state': '../has_pokedex_nballs.state', 'max_steps': ep_length,
+                'print_rewards': True, 'save_video': True, 'fast_video': True, 'session_path': sess_path,
+                'gb_path': '../PokemonRed.gb', 'debug': True, 'sim_frame_dist': 2_000_000.0,
                 'use_screen_explore': True, 'reward_scale': 4, 'extra_buttons': False,
                 'explore_weight': 3 # 2.5
             }
-    
+
     print(env_config)
-    
-    num_cpu = 16  # Also sets the number of episodes per training iteration
+
+    num_cpu = 6  # Also sets the number of episodes per training iteration
     env = SubprocVecEnv([make_env(i, env_config) for i in range(num_cpu)])
-    
+    # env = make_env(0, env_config)
+
     checkpoint_callback = CheckpointCallback(save_freq=ep_length, save_path=sess_path,
                                      name_prefix='poke')
-    
+
     callbacks = [checkpoint_callback, TensorboardCallback()]
 
     if use_wandb_logging:
@@ -57,16 +76,20 @@ if __name__ == '__main__':
             project="pokemon-train",
             id=sess_id,
             config=env_config,
-            sync_tensorboard=True,  
-            monitor_gym=True,  
+            sync_tensorboard=True,
+            monitor_gym=True,
             save_code=True,
         )
         callbacks.append(WandbCallback())
 
     #env_checker.check_env(env)
     # put a checkpoint here you want to start from
-    file_name = 'session_e41c9eff/poke_38207488_steps' 
-    
+    # file_name = 'session_100it/poke_3932160_steps'
+    file_name = 'session_placeholder/poke_3276800_steps'
+
+    print('main 9')
+
+
     if exists(file_name + '.zip'):
         print('\nloading checkpoint')
         model = PPO.load(file_name, env=env)
@@ -77,6 +100,9 @@ if __name__ == '__main__':
         model.rollout_buffer.reset()
     else:
         model = PPO('CnnPolicy', env, verbose=1, n_steps=ep_length // 8, batch_size=128, n_epochs=3, gamma=0.998, tensorboard_log=sess_path)
+
+    print('main 10')
+
 
     # run for up to 5k episodes
     model.learn(total_timesteps=(ep_length)*num_cpu*5000, callback=CallbackList(callbacks))
