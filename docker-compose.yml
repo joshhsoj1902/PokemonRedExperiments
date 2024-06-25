@@ -5,3 +5,11 @@ services:
     volumes:
       - ./:/pokemon
     restart: always
+  tenserboard:
+    image: joshhsoj1902/pokemonredexperiments:latest
+    volumes:
+      - ./:/pokemon
+    command: sh -c 'echo "test1" && sleep 60 && echo "test2" && cd /pokemon/baselines/session_docker && echo "test3" && tensorboard --bind_all --logdir  .'
+    ports:
+      - 6006:6006
+    restart: always
