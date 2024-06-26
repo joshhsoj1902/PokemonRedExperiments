@@ -438,15 +438,10 @@ class RedGymEnv(Env):
             self.full_frame_writer.close()
             self.model_frame_writer.close()
 
-            print ('Saving video')
-
             base_dir = self.s_path / Path('rollouts')
             base_dir.mkdir(exist_ok=True)
             full_name = Path(f'full_reset_{self.reset_count}_s{str(int(self.total_reward))}_id{self.instance_id}').with_suffix('.mp4')
             model_name = Path(f'model_reset_{self.reset_count}_s{str(int(self.total_reward))}_id{self.instance_id}').with_suffix('.mp4')
-
-            print (f'Renaming video1 { self.video_path }')
-            print (f'Renaming video2 { base_dir / full_name }')
 
             os.rename(self.video_path, base_dir / full_name)
             os.rename(self.model_video_path, base_dir / model_name)

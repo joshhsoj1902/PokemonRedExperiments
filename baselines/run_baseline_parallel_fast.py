@@ -2,6 +2,9 @@ from os.path import exists
 from pathlib import Path
 import socket
 import uuid
+import time
+import os
+import re
 from red_gym_env import RedGymEnv
 from stable_baselines3 import PPO
 from stable_baselines3.common import env_checker
@@ -52,6 +55,8 @@ if __name__ == '__main__':
     # sess_path = Path(f'session_{socket.gethostname()}')
     sess_path = Path(f'session_docker')
 
+    previous_session_file_name = ''
+
     env_config = {
                 'headless': True, 'save_final_state': True, 'early_stop': False, 'add_score': True,
                 'action_freq': 24, 'init_state': '../has_pokedex_nballs.state', 'max_steps': ep_length,
@@ -62,6 +67,23 @@ if __name__ == '__main__':
             }
 
     print(env_config)
+
+    if exists(sess_path):
+        prev_sess_path = f'{sess_path}.{time.strftime("%Y%m%d-%H%M%S")}'
+        # Rename previous session before starting a new one
+        os.rename(sess_path, prev_sess_path)
+        steps_file=''
+        steps_count=0
+        for _, _, files in os.walk(prev_sess_path):
+            for name in files:
+                if name.endswith('steps.zip'):
+                    if int(name.split("_")[1]) > steps_count:
+                        steps_count = int(name.split("_")[1])
+                        steps_file = name
+        if steps_file != '':
+            previous_session_file_name = f'{prev_sess_path}/{steps_file}'
+            print (f'Found previous session @ {previous_session_file_name}')
+
 
     num_cpu = 8  # Also sets the number of episodes per training iteration
     env = SubprocVecEnv([make_env(i, env_config) for i in range(num_cpu)])
@@ -88,14 +110,15 @@ if __name__ == '__main__':
     #env_checker.check_env(env)
     # put a checkpoint here you want to start from
     # file_name = 'session_100it/poke_3932160_steps'
-    file_name = 'session_placeholder/poke_3276800_steps'
+    # file_name = 'session_placeholder/poke_3276800_steps'
 
     print('main 9')
 
 
-    if exists(file_name + '.zip'):
+    # if exists(file_name + '.zip'):
+    if exists(previous_session_file_name):
         print('\nloading checkpoint')
-        model = PPO.load(file_name, env=env)
+        model = PPO.load(previous_session_file_name, env=env)
         model.n_steps = ep_length
         model.n_envs = num_cpu
         model.rollout_buffer.buffer_size = ep_length
