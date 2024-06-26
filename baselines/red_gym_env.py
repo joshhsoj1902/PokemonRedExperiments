@@ -143,9 +143,13 @@ class RedGymEnv(Env):
             base_dir.mkdir(exist_ok=True)
             full_name = Path(f'full_reset_{self.reset_count}_id{self.instance_id}').with_suffix('.mp4')
             model_name = Path(f'model_reset_{self.reset_count}_id{self.instance_id}').with_suffix('.mp4')
-            self.full_frame_writer = media.VideoWriter(base_dir / full_name, (144, 160), fps=60)
+
+            self.video_path = base_dir / full_name
+            self.model_video_path = base_dir / model_name
+
+            self.full_frame_writer = media.VideoWriter(self.video_path, (144, 160), fps=60)
             self.full_frame_writer.__enter__()
-            self.model_frame_writer = media.VideoWriter(base_dir / model_name, self.output_full[:2], fps=60)
+            self.model_frame_writer = media.VideoWriter(self.model_video_path, self.output_full[:2], fps=60)
             self.model_frame_writer.__enter__()
 
         self.levels_satisfied = False
@@ -433,6 +437,19 @@ class RedGymEnv(Env):
         if self.save_video and done:
             self.full_frame_writer.close()
             self.model_frame_writer.close()
+
+            print ('Saving video')
+
+            base_dir = self.s_path / Path('rollouts')
+            base_dir.mkdir(exist_ok=True)
+            full_name = Path(f'full_reset_{self.reset_count}_s{str(int(self.total_reward))}_id{self.instance_id}').with_suffix('.mp4')
+            model_name = Path(f'model_reset_{self.reset_count}_s{str(int(self.total_reward))}_id{self.instance_id}').with_suffix('.mp4')
+
+            print (f'Renaming video1 { self.video_path }')
+            print (f'Renaming video2 { base_dir / full_name }')
+
+            os.rename(self.video_path, base_dir / full_name)
+            os.rename(self.model_video_path, base_dir / model_name)
 
         if done:
             self.all_runs.append(self.progress_reward)
