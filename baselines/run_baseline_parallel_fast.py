@@ -32,7 +32,7 @@ def make_env(rank, env_conf, seed=0):
         env = StreamWrapper(
             RedGymEnv(env_conf),
             stream_metadata = {
-                "user": "joshhsoj1902",
+                "user": "josh-testing",
                 "env_id": rank,
                 "color": "#f5bf42",
                 "extra": "", # any extra text you put here will be displayed
@@ -53,9 +53,9 @@ if __name__ == '__main__':
     sess_path = Path(f'session_docker')
 
     env_config = {
-                'headless': True, 'save_final_state': True, 'early_stop': False,
+                'headless': True, 'save_final_state': True, 'early_stop': False, 'add_score': True,
                 'action_freq': 24, 'init_state': '../has_pokedex_nballs.state', 'max_steps': ep_length,
-                'print_rewards': True, 'save_video': True, 'fast_video': True, 'session_path': sess_path,
+                'print_rewards': True, 'save_video': False, 'fast_video': True, 'session_path': sess_path,
                 'gb_path': '../PokemonRed.gb', 'debug': True, 'sim_frame_dist': 2_000_000.0,
                 'use_screen_explore': True, 'reward_scale': 4, 'extra_buttons': False,
                 'explore_weight': 3 # 2.5
@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
     print(env_config)
 
-    num_cpu = 20  # Also sets the number of episodes per training iteration
+    num_cpu = 8  # Also sets the number of episodes per training iteration
     env = SubprocVecEnv([make_env(i, env_config) for i in range(num_cpu)])
     # env = make_env(0, env_config)
 

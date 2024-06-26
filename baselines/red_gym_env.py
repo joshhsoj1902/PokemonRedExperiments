@@ -20,6 +20,8 @@ from gymnasium import Env, spaces
 from pyboy.utils import WindowEvent
 from memory_addresses import *
 
+import cv2
+
 class RedGymEnv(Env):
 
 
@@ -30,6 +32,7 @@ class RedGymEnv(Env):
         self.s_path = config['session_path']
         self.save_final_state = config['save_final_state']
         self.print_rewards = config['print_rewards']
+        self.add_score = config['add_score']
         self.vec_dim = 4320 #1000
         self.headless = config['headless']
         self.num_elements = 20000 # max
@@ -170,7 +173,7 @@ class RedGymEnv(Env):
     def init_map_mem(self):
         self.seen_coords = {}
 
-    def render(self, reduce_res=True, add_memory=True, update_mem=True):
+    def render(self, reduce_res=True, add_memory=True, update_mem=True, add_score=False):
         game_pixels_render = self.screen.screen_ndarray() # (144, 160, 3)
         if reduce_res:
             game_pixels_render = (255*resize(game_pixels_render, self.output_shape)).astype(np.uint8)
@@ -189,6 +192,16 @@ class RedGymEnv(Env):
                         rearrange(self.recent_frames, 'f h w c -> (f h) w c')
                     ),
                     axis=0)
+
+        if add_score and self.add_score:
+            renderline = 10
+            font = cv2.FONT_HERSHEY_PLAIN
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),"total: " + str(self.total_reward),(2,renderline), font, 0.8,(255,0,0),1)
+
+            for key, val in self.progress_reward.items():
+                renderline = renderline + 10
+                game_pixels_render = cv2.putText(game_pixels_render.copy(),f' {key}: {val:5.2f}',(2,renderline), font, 0.8,(255,0,0),1)
+
         return game_pixels_render
 
     def step(self, action):
@@ -256,7 +269,7 @@ class RedGymEnv(Env):
             self.add_video_frame()
 
     def add_video_frame(self):
-        self.full_frame_writer.add_image(self.render(reduce_res=False, update_mem=False))
+        self.full_frame_writer.add_image(self.render(reduce_res=False, update_mem=False, add_score=True))
         self.model_frame_writer.add_image(self.render(reduce_res=True, update_mem=False))
 
     def append_agent_stats(self, action):
@@ -403,7 +416,7 @@ class RedGymEnv(Env):
         if self.step_count % 50 == 0:
             plt.imsave(
                 self.s_path / Path(f'curframe_{self.instance_id}.jpeg'),
-                self.render(reduce_res=False))
+                self.render(reduce_res=False, add_score=True))
 
         if self.print_rewards and done:
             print('', flush=True)
@@ -415,7 +428,7 @@ class RedGymEnv(Env):
                     obs_memory)
                 plt.imsave(
                     fs_path / Path(f'frame_r{self.total_reward:.4f}_{self.reset_count}_full.jpeg'),
-                    self.render(reduce_res=False))
+                    self.render(reduce_res=False, add_score=True))
 
         if self.save_video and done:
             self.full_frame_writer.close()
@@ -546,12 +559,14 @@ class RedGymEnv(Env):
             self.render(reduce_res=False))
 
     def update_max_op_level(self):
-        #opponent_level = self.read_m(0xCFE8) - 5 # base level
-        opponent_level = max([self.read_m(a) for a in OPPONENT_LEVELS_ADDRESSES]) - 5
+        # The first battle is vs a lvl5, so use it as a baseline
+        opponent_level = max([self.read_m(a) for a in OPPONENT_LEVELS_ADDRESSES]) -5
         #if opponent_level >= 7:
         #    self.save_screenshot('highlevelop')
         self.max_opponent_level = max(self.max_opponent_level, opponent_level)
+        # Give a strong incentive to be where stronger level pokemon are.
         return self.max_opponent_level * 0.2
+        # return self.max_opponent_level * self.max_opponent_level * 0.2
 
     def update_max_event_rew(self):
         cur_rew = self.get_all_events_reward()
