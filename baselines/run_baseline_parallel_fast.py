@@ -1,10 +1,9 @@
 from os.path import exists
 from pathlib import Path
-import socket
-import uuid
 import time
 import os
-import re
+import shutil
+import pathlib
 from red_gym_env import RedGymEnv
 from stable_baselines3 import PPO
 from stable_baselines3.common import env_checker
@@ -13,6 +12,13 @@ from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
 from tensorboard_callback import TensorboardCallback
 from stream_agent_wrapper import StreamWrapper
+
+EP_LENGTH = 2048 * 10 # How many steps per episode
+NUM_CPU = 12  # Also sets the number of episodes per training iteration
+# PPO_DEVICE = 'cpu'
+PPO_DEVICE = 'cuda'
+STREAM_USER = 'joshhsoj1902'
+STREAM_COLOR = '#c97f06'
 
 def make_env(rank, env_conf, seed=0):
     """
@@ -35,9 +41,9 @@ def make_env(rank, env_conf, seed=0):
         env = StreamWrapper(
             RedGymEnv(env_conf),
             stream_metadata = {
-                "user": "josh-testing",
+                "user": STREAM_USER,
                 "env_id": rank,
-                "color": "#f5bf42",
+                "color": STREAM_COLOR,
                 "extra": "", # any extra text you put here will be displayed
             }
         )
@@ -49,20 +55,16 @@ def make_env(rank, env_conf, seed=0):
 if __name__ == '__main__':
 
     use_wandb_logging = False
-    ep_length = 2048 * 10
-    # sess_id = str(uuid.uuid4())[:8]
-    # sess_path = Path(f'session_{sess_id}')
-    # sess_path = Path(f'session_{socket.gethostname()}')
-    sess_path = Path(f'session_docker')
+    sess_path = Path(f'session_fast')
 
     previous_session_file_name = ''
 
     env_config = {
                 'headless': True, 'save_final_state': True, 'early_stop': False, 'add_score': True,
-                'action_freq': 24, 'init_state': '../has_pokedex_nballs.state', 'max_steps': ep_length,
-                'print_rewards': True, 'save_video': False, 'fast_video': True, 'session_path': sess_path,
+                'action_freq': 24, 'init_state': '../has_pokedex_nballs.state', 'max_steps': EP_LENGTH,
+                'print_rewards': True, 'save_video': True, 'fast_video': True, 'session_path': sess_path,
                 'gb_path': '../PokemonRed.gb', 'debug': True, 'sim_frame_dist': 2_000_000.0,
-                'use_screen_explore': True, 'reward_scale': 4, 'extra_buttons': False,
+                'use_screen_explore': False, 'reward_scale': 4, 'extra_buttons': False,
                 'explore_weight': 3 # 2.5
             }
 
@@ -72,6 +74,8 @@ if __name__ == '__main__':
         prev_sess_path = f'{sess_path}.{time.strftime("%Y%m%d-%H%M%S")}'
         # Rename previous session before starting a new one
         os.rename(sess_path, prev_sess_path)
+        sess_path.mkdir(exist_ok=True)
+
         steps_file=''
         steps_count=0
         for _, _, files in os.walk(prev_sess_path):
@@ -84,12 +88,30 @@ if __name__ == '__main__':
             previous_session_file_name = f'{prev_sess_path}/{steps_file}'
             print (f'Found previous session @ {previous_session_file_name}')
 
+            # Record into the new session where the old session was pulled from
+            f = open(sess_path / "checkpoint_source.txt", "w")
+            f.write(previous_session_file_name)
+            f.close()
+        else:
+            checkpoint_file = f'{prev_sess_path}/checkpoint_source.txt'
+            print(f"Step file not found, attempting to recover previous session from {checkpoint_file}")
+            if exists(checkpoint_file):
+                print(f'Found previous session reference... attempting to load')
+                f = open(checkpoint_file, "r")
+                previous_session_file_name = f.read()
+                print(f'Previous session:: {previous_session_file_name}')
+                f.close()
+                shutil.copyfile(checkpoint_file, f'{sess_path}/checkpoint_source.txt')
+                os.rename(prev_sess_path, f'{prev_sess_path}.corrupt')
 
-    num_cpu = 8  # Also sets the number of episodes per training iteration
-    env = SubprocVecEnv([make_env(i, env_config) for i in range(num_cpu)])
+            else:
+                print(f'{checkpoint_file} does not exist')
+
+
+    env = SubprocVecEnv([make_env(i, env_config) for i in range(NUM_CPU)])
     # env = make_env(0, env_config)
 
-    checkpoint_callback = CheckpointCallback(save_freq=ep_length, save_path=sess_path,
+    checkpoint_callback = CheckpointCallback(save_freq=EP_LENGTH, save_path=sess_path,
                                      name_prefix='poke')
 
     callbacks = [checkpoint_callback, TensorboardCallback()]
@@ -114,24 +136,29 @@ if __name__ == '__main__':
 
     print('main 9')
 
+    temp = pathlib.PosixPath
+    pathlib.PosixPath = pathlib.WindowsPath
 
     # if exists(file_name + '.zip'):
     if exists(previous_session_file_name):
-        print('\nloading checkpoint')
+        print(f'\nloading checkpoint {previous_session_file_name}')
         model = PPO.load(previous_session_file_name, env=env)
-        model.n_steps = ep_length
-        model.n_envs = num_cpu
-        model.rollout_buffer.buffer_size = ep_length
-        model.rollout_buffer.n_envs = num_cpu
+        model.n_steps = EP_LENGTH
+        model.n_envs = NUM_CPU
+        model.rollout_buffer.buffer_size = EP_LENGTH
+        model.rollout_buffer.n_envs = NUM_CPU
         model.rollout_buffer.reset()
-    else:
-        model = PPO('CnnPolicy', env, verbose=1, n_steps=ep_length // 8, batch_size=128, n_epochs=3, gamma=0.998, tensorboard_log=sess_path)
+        model.tensorboard_log=sess_path
+        model.device=PPO_DEVICE
 
+    else:
+        model = PPO('CnnPolicy', env, verbose=1, n_steps=EP_LENGTH // 8, batch_size=128, n_epochs=3, gamma=0.998, tensorboard_log=sess_path, device=PPO_DEVICE)
+
+    pathlib.PosixPath = temp
     print('main 10')
 
-
     # run for up to 5k episodes
-    model.learn(total_timesteps=(ep_length)*num_cpu*5000, callback=CallbackList(callbacks))
+    model.learn(total_timesteps=(EP_LENGTH)*NUM_CPU*5000, callback=CallbackList(callbacks))
 
     if use_wandb_logging:
         run.finish()

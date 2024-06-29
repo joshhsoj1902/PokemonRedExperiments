@@ -40,7 +40,7 @@ matplotlib==3.7.1
 matplotlib-inline==0.1.6
 mediapy @ git+https://github.com/PWhiddy/mediapy.git@45101800d4f6adeffe814cad93de1db67c1bd614
 mistune==3.0.1
-ml-dtypes==0.2.0
+ml-dtypes==0.3.1
 mpmath==1.3.0
 nbclient==0.8.0
 nbconvert==7.7.4
@@ -60,7 +60,7 @@ platformdirs==3.10.0
 prompt-toolkit==3.0.38
 ptyprocess==0.7.0
 pure-eval==0.2.2
-pyboy==1.6.9
+pyboy==1.6.14
 Pygments==2.15.1
 pyparsing==3.1.0
 PySDL2==0.9.15
@@ -81,11 +81,13 @@ soupsieve==2.4.1
 stable-baselines3==2.3.2
 stack-data==0.6.2
 sympy==1.12
-tensorboard==2.15.0
+tensorboard==2.16.0
 threadpoolctl==3.1.0
 tifffile==2023.4.12
 tinycss2==1.2.1
-torch==2.0.1
+torch==2.3.1+cu121
+torchaudio==2.3.1+cu121
+torchvision==0.18.1+cu121
 tornado==6.3.3
 tqdm==4.65.0
 traitlets==5.9.0

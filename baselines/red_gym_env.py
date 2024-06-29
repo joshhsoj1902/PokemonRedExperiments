@@ -16,6 +16,8 @@ import hnswlib
 import mediapy as media
 import pandas as pd
 
+import statistics
+
 from gymnasium import Env, spaces
 from pyboy.utils import WindowEvent
 from memory_addresses import *
@@ -158,7 +160,10 @@ class RedGymEnv(Env):
         self.max_event_rew = 0
         self.max_level_rew = 0
         self.last_health = 1
+        self.last_health_pokemon_level = 0
         self.total_healing_rew = 0
+        self.total_money_rew = 0
+        self.last_money_total = 0
         self.died_count = 0
         self.party_size = 0
         self.step_count = 0
@@ -229,6 +234,8 @@ class RedGymEnv(Env):
         self.update_heal_reward()
         self.party_size = self.read_m(PARTY_SIZE_ADDRESS)
 
+        # self.update_money_reward()
+
         new_reward, new_prog = self.update_reward()
 
         self.last_health = self.read_hp_fraction()
@@ -290,13 +297,18 @@ class RedGymEnv(Env):
             'map_location': self.get_map_location(map_n),
             'last_action': action,
             'pcount': self.read_m(PARTY_SIZE_ADDRESS),
+            'pseen': self.get_seen_poke(),
+            'pcaught': self.get_caught_poke(),
             'levels': levels,
             'levels_sum': sum(levels),
             'ptypes': self.read_party(),
             'hp': self.read_hp_fraction(),
             expl[0]: expl[1],
-            'deaths': self.died_count, 'badge': self.get_badges(),
-            'event': self.progress_reward['event'], 'healr': self.total_healing_rew
+            'deaths': self.died_count,
+            'badge': self.get_badges(),
+            'event': self.progress_reward['event'],
+            'healr': self.total_healing_rew,
+            'money': self.total_money_rew
         })
 
     def update_frame_knn_index(self, frame_vec):
@@ -418,21 +430,30 @@ class RedGymEnv(Env):
             print(f'\r{prog_string}', end='', flush=True)
 
         if self.step_count % 50 == 0:
-            plt.imsave(
-                self.s_path / Path(f'curframe_{self.instance_id}.jpeg'),
-                self.render(reduce_res=False, add_score=True))
+            try:
+                plt.imsave(
+                    self.s_path / Path(f'curframe_{self.instance_id}.jpeg'),
+                    self.render(reduce_res=False, add_score=True))
+            except Exception as e:
+                    print(f"Error saving iamge: {e}")
 
         if self.print_rewards and done:
             print('', flush=True)
             if self.save_final_state:
                 fs_path = self.s_path / Path('final_states')
                 fs_path.mkdir(exist_ok=True)
-                plt.imsave(
-                    fs_path / Path(f'frame_r{self.total_reward:.4f}_{self.reset_count}_small.jpeg'),
-                    obs_memory)
-                plt.imsave(
-                    fs_path / Path(f'frame_r{self.total_reward:.4f}_{self.reset_count}_full.jpeg'),
-                    self.render(reduce_res=False, add_score=True))
+                try:
+                    plt.imsave(
+                        fs_path / Path(f'frame_r{self.total_reward:.4f}_{self.reset_count}_small.jpeg'),
+                        obs_memory)
+                except Exception as e:
+                    print(f"Error saving iamge: {e}")
+                try:
+                    plt.imsave(
+                        fs_path / Path(f'frame_r{self.total_reward:.4f}_{self.reset_count}_full.jpeg'),
+                        self.render(reduce_res=False, add_score=True))
+                except Exception as e:
+                    print(f"Error saving iamge: {e}")
 
         if self.save_video and done:
             self.full_frame_writer.close()
@@ -460,19 +481,17 @@ class RedGymEnv(Env):
         # add padding so zero will read '0b100000000' instead of '0b0'
         return bin(256 + self.read_m(addr))[-bit-1] == '1'
 
+    def get_levels_avg(self):
+        poke_levels = [max(self.read_m(a) - 2, 0) for a in LEVELS_ADDRESSES]
+        return sum(poke_levels)/(max(self.party_size,1))
+
     def get_levels_sum(self):
         poke_levels = [max(self.read_m(a) - 2, 0) for a in LEVELS_ADDRESSES]
         return max(sum(poke_levels) - 4, 0) # subtract starting pokemon level
 
     def get_levels_reward(self):
-        explore_thresh = 22
-        scale_factor = 4
-        level_sum = self.get_levels_sum()
-        if level_sum < explore_thresh:
-            scaled = level_sum
-        else:
-            scaled = (level_sum-explore_thresh) / scale_factor + explore_thresh
-        self.max_level_rew = max(self.max_level_rew, scaled)
+        avg_poke_lvl=self.get_levels_avg()
+        self.max_level_rew = max(self.max_level_rew, avg_poke_lvl)
         return self.max_level_rew
 
     def get_knn_reward(self):
@@ -487,22 +506,38 @@ class RedGymEnv(Env):
     def get_badges(self):
         return self.bit_count(self.read_m(BADGE_COUNT_ADDRESS))
 
+    def get_seen_poke(self):
+        return sum([self.bit_count(self.read_m(a)) for a in SEEN_POKEMONS_ADDRESSES])
+
+    def get_caught_poke(self):
+        return sum([self.bit_count(self.read_m(a)) for a in CAUGHT_POKEMONS_ADDRESSES])
+
     def read_party(self):
         return [self.read_m(addr) for addr in PARTY_ADDRESSES]
 
     def update_heal_reward(self):
         cur_health = self.read_hp_fraction()
+        # Get the current pokemon lvl and factor that into the heal calc
+        cur_health_pokemon_level = self.get_levels_sum()
         # if health increased and party size did not change
         if (cur_health > self.last_health and
-                self.read_m(PARTY_SIZE_ADDRESS) == self.party_size):
+                self.read_m(PARTY_SIZE_ADDRESS) == self.party_size and
+                cur_health_pokemon_level == self.last_health_pokemon_level):
             if self.last_health > 0:
                 heal_amount = cur_health - self.last_health
                 if heal_amount > 0.5:
                     print(f'healed: {heal_amount}')
-                    self.save_screenshot('healing')
+                    # self.save_screenshot('healing')
                 self.total_healing_rew += heal_amount * 4
             else:
                 self.died_count += 1
+        self.last_health_pokemon_level = cur_health_pokemon_level
+
+    def update_money_reward(self):
+        cur_money = self.read_money()
+        if cur_money > self.last_money_total:
+            self.total_money_rew += cur_money - self.last_money_total
+            self.last_money_total = cur_money
 
     def get_all_events_reward(self):
         # adds up all event flags, exclude museum ticket
@@ -547,17 +582,24 @@ class RedGymEnv(Env):
             print(f'oak_parcel: {oak_parcel} oak_pokedex: {oak_pokedex} all_events_score: {all_events_score}')
         '''
 
+        op_lvl = self.update_max_op_level()
+
         state_scores = {
             'event': self.reward_scale*self.update_max_event_rew(),
             #'party_xp': self.reward_scale*0.1*sum(poke_xps),
-            'level': self.reward_scale*self.get_levels_reward(),
-            'heal': self.reward_scale*self.total_healing_rew,
-            'op_lvl': self.reward_scale*self.update_max_op_level(),
-            'dead': self.reward_scale*-0.1*self.died_count,
-            'badge': self.reward_scale*self.get_badges() * 5,
+            'level': self.reward_scale*(self.get_levels_reward()-4)*2,
+            'heal': self.reward_scale*self.total_healing_rew*2,
+            'money': self.reward_scale*self.total_money_rew *0.1,
+            # Give a strong incentive to be where stronger level pokemon are. (the max level pokemon is lvl 65 at the end of the elite 4)
+            'op_lvl': self.reward_scale*(op_lvl*op_lvl*0.2),
+            'dead': self.reward_scale*-0.15*self.died_count,
+            'badge': self.reward_scale*self.get_badges() * 6,
             #'op_poke': self.reward_scale*self.max_opponent_poke * 800,
             #'money': self.reward_scale* money * 3,
-            #'seen_poke': self.reward_scale * seen_poke_count * 400,
+            # Pokemon seen starts at 3
+            'seen_poke': self.reward_scale*(self.get_seen_poke()-3),
+            # Pokemon caught starts at 1
+            'caught_poke': self.reward_scale*(self.get_caught_poke()-1) * 2,
             'explore': self.reward_scale * self.get_knn_reward()
         }
 
@@ -566,19 +608,18 @@ class RedGymEnv(Env):
     def save_screenshot(self, name):
         ss_dir = self.s_path / Path('screenshots')
         ss_dir.mkdir(exist_ok=True)
-        plt.imsave(
-            ss_dir / Path(f'frame{self.instance_id}_r{self.total_reward:.4f}_{self.reset_count}_{name}.jpeg'),
-            self.render(reduce_res=False))
+        try:
+            plt.imsave(
+                ss_dir / Path(f'frame{self.instance_id}_r{self.total_reward:.4f}_{self.reset_count}_{name}.jpeg'),
+                self.render(reduce_res=False))
+        except Exception as e:
+                print(f"Error saving iamge: {e}")
 
     def update_max_op_level(self):
         # The first battle is vs a lvl5, so use it as a baseline
         opponent_level = max([self.read_m(a) for a in OPPONENT_LEVELS_ADDRESSES]) -5
-        #if opponent_level >= 7:
-        #    self.save_screenshot('highlevelop')
         self.max_opponent_level = max(self.max_opponent_level, opponent_level)
-        # Give a strong incentive to be where stronger level pokemon are.
-        return self.max_opponent_level * 0.2
-        # return self.max_opponent_level * self.max_opponent_level * 0.2
+        return self.max_opponent_level
 
     def update_max_event_rew(self):
         cur_rew = self.get_all_events_reward()
