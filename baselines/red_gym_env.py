@@ -24,9 +24,10 @@ from memory_addresses import *
 
 import cv2
 
+from pokemon import Pokemon
+
+
 class RedGymEnv(Env):
-
-
     def __init__(
         self, config=None):
 
@@ -34,7 +35,7 @@ class RedGymEnv(Env):
         self.s_path = config['session_path']
         self.save_final_state = config['save_final_state']
         self.print_rewards = config['print_rewards']
-        self.add_score = config['add_score']
+        self.fancy_video = config['fancy_video']
         self.vec_dim = 4320 #1000
         self.headless = config['headless']
         self.num_elements = 20000 # max
@@ -144,15 +145,18 @@ class RedGymEnv(Env):
             base_dir = self.s_path / Path('rollouts')
             base_dir.mkdir(exist_ok=True)
             full_name = Path(f'full_reset_{self.reset_count}_id{self.instance_id}').with_suffix('.mp4')
-            model_name = Path(f'model_reset_{self.reset_count}_id{self.instance_id}').with_suffix('.mp4')
+            # model_name = Path(f'model_reset_{self.reset_count}_id{self.instance_id}').with_suffix('.mp4')
 
             self.video_path = base_dir / full_name
-            self.model_video_path = base_dir / model_name
+            # self.model_video_path = base_dir / model_name
 
-            self.full_frame_writer = media.VideoWriter(self.video_path, (144, 160), fps=60)
+            if self.fancy_video:
+                self.full_frame_writer = media.VideoWriter(self.video_path, (259, 310), fps=60)
+            else:
+                self.full_frame_writer = media.VideoWriter(self.video_path, (144, 160), fps=60)
             self.full_frame_writer.__enter__()
-            self.model_frame_writer = media.VideoWriter(self.model_video_path, self.output_full[:2], fps=60)
-            self.model_frame_writer.__enter__()
+            # self.model_frame_writer = media.VideoWriter(self.model_video_path, self.output_full[:2], fps=60)
+            # self.model_frame_writer.__enter__()
 
         self.levels_satisfied = False
         self.base_explore = 0
@@ -170,6 +174,14 @@ class RedGymEnv(Env):
         self.progress_reward = self.get_game_state_reward()
         self.total_reward = sum([val for _, val in self.progress_reward.items()])
         self.reset_count += 1
+
+        self.party = []
+        i = 0
+        while i in range(6):
+            self.party.append(Pokemon())
+            i += 1
+
+
         return self.render(), {}
 
     def init_knn(self):
@@ -182,7 +194,7 @@ class RedGymEnv(Env):
     def init_map_mem(self):
         self.seen_coords = {}
 
-    def render(self, reduce_res=True, add_memory=True, update_mem=True, add_score=False):
+    def render(self, reduce_res=True, add_memory=True, update_mem=True, fancy_video=False):
         game_pixels_render = self.screen.screen_ndarray() # (144, 160, 3)
         if reduce_res:
             game_pixels_render = (255*resize(game_pixels_render, self.output_shape)).astype(np.uint8)
@@ -202,14 +214,45 @@ class RedGymEnv(Env):
                     ),
                     axis=0)
 
-        if add_score and self.add_score:
-            renderline = 10
-            font = cv2.FONT_HERSHEY_PLAIN
-            game_pixels_render = cv2.putText(game_pixels_render.copy(),"total: " + str(self.total_reward),(2,renderline), font, 0.8,(255,0,0),1)
+        if fancy_video and self.fancy_video:
+            screen_bottom_edge = game_pixels_render.shape[0]
+            screen_right_edge = game_pixels_render.shape[1]
 
+            game_pixels_render = np.pad(game_pixels_render,((0,115),(0,150),(0,0)),'constant', constant_values=0)
+            font = cv2.FONT_HERSHEY_PLAIN
+
+            # Print reward details
+            render_row = screen_bottom_edge + 10
+            render_col = 2
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),"total: " + str(round(self.total_reward,2)),(render_col,render_row), font, 0.8,(255,0,0),1)
             for key, val in self.progress_reward.items():
-                renderline = renderline + 10
-                game_pixels_render = cv2.putText(game_pixels_render.copy(),f' {key}: {val:5.2f}',(2,renderline), font, 0.8,(255,0,0),1)
+                render_row = render_row + 10
+                game_pixels_render = cv2.putText(game_pixels_render.copy(),f'{key}: {val:5.2f}',(render_col,render_row), font, 0.8,(255,0,0),1)
+
+            # Print party details
+            i = 0
+            render_row = 10
+            render_col = screen_right_edge + 5
+            while i in range(self.party_size):
+                game_pixels_render = cv2.putText(game_pixels_render.copy(),f'{self.party[i].get_pokemon_name()} lvl: {self.party[i].level}',(render_col,render_row), font, 0.8,(255,0,0),1)
+                render_row += 10
+                game_pixels_render = cv2.putText(game_pixels_render.copy(),f'hp: {self.party[i].current_hp}/{self.party[i].max_hp} status: {self.party[i].status}',(render_col,render_row), font, 0.8,(255,0,0),1)
+                render_row += 15
+                i+=1
+
+            # Print misc statuses
+            render_row = screen_bottom_edge + 30
+            render_col = screen_right_edge + 5
+
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Seen: {self.get_seen_poke()}/151',(render_col,render_row), font, 0.8,(255,0,0),1)
+            render_row += 10
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Caught: {self.get_caught_poke()}/151',(render_col,render_row), font, 0.8,(255,0,0),1)
+            render_row += 10
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Badges: {self.get_badges()}/8',(render_col,render_row), font, 0.8,(255,0,0),1)
+            render_row += 10
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Team wipes: {self.died_count}',(render_col,render_row), font, 0.8,(255,0,0),1)
+
+
 
         return game_pixels_render
 
@@ -233,6 +276,8 @@ class RedGymEnv(Env):
 
         self.update_heal_reward()
         self.party_size = self.read_m(PARTY_SIZE_ADDRESS)
+
+        self.read_party_details()
 
         # self.update_money_reward()
 
@@ -280,8 +325,11 @@ class RedGymEnv(Env):
             self.add_video_frame()
 
     def add_video_frame(self):
-        self.full_frame_writer.add_image(self.render(reduce_res=False, update_mem=False, add_score=True))
-        self.model_frame_writer.add_image(self.render(reduce_res=True, update_mem=False))
+        try:
+            self.full_frame_writer.add_image(self.render(reduce_res=False, update_mem=False, fancy_video=True))
+            # self.model_frame_writer.add_image(self.render(reduce_res=True, update_mem=False))
+        except Exception as e:
+            print(f"Error adding frame to video: {e}")
 
     def append_agent_stats(self, action):
         x_pos = self.read_m(X_POS_ADDRESS)
@@ -351,9 +399,9 @@ class RedGymEnv(Env):
         new_prog = self.group_rewards()
         new_total = sum([val for _, val in self.progress_reward.items()]) #sqrt(self.explore_reward * self.progress_reward)
         new_step = new_total - self.total_reward
-        if new_step < 0 and self.read_hp_fraction() > 0:
+        # if new_step < 0 and self.read_hp_fraction() > 0:
             #print(f'\n\nreward went down! {self.progress_reward}\n\n')
-            self.save_screenshot('neg_reward')
+            # self.save_screenshot('neg_reward')
 
         self.total_reward = new_total
         return (new_step,
@@ -429,11 +477,11 @@ class RedGymEnv(Env):
             prog_string += f' sum: {self.total_reward:5.2f}'
             print(f'\r{prog_string}', end='', flush=True)
 
-        if self.step_count % 50 == 0:
+        if self.step_count % 150 == 0:
             try:
                 plt.imsave(
                     self.s_path / Path(f'curframe_{self.instance_id}.jpeg'),
-                    self.render(reduce_res=False, add_score=True))
+                    self.render(reduce_res=False, fancy_video=True))
             except Exception as e:
                     print(f"Error saving iamge: {e}")
 
@@ -451,28 +499,33 @@ class RedGymEnv(Env):
                 try:
                     plt.imsave(
                         fs_path / Path(f'frame_r{self.total_reward:.4f}_{self.reset_count}_full.jpeg'),
-                        self.render(reduce_res=False, add_score=True))
+                        self.render(reduce_res=False, fancy_video=True))
                 except Exception as e:
                     print(f"Error saving iamge: {e}")
 
         if self.save_video and done:
-            self.full_frame_writer.close()
-            self.model_frame_writer.close()
+            try:
+                self.full_frame_writer.close()
+                # self.model_frame_writer.close()
 
-            base_dir = self.s_path / Path('rollouts')
-            base_dir.mkdir(exist_ok=True)
-            full_name = Path(f'full_reset_{self.reset_count}_s{str(int(self.total_reward))}_id{self.instance_id}').with_suffix('.mp4')
-            model_name = Path(f'model_reset_{self.reset_count}_s{str(int(self.total_reward))}_id{self.instance_id}').with_suffix('.mp4')
+                base_dir = self.s_path / Path('rollouts')
+                base_dir.mkdir(exist_ok=True)
+                full_name = Path(f'full_reset_{self.reset_count}_s{str(int(self.total_reward))}_id{self.instance_id}').with_suffix('.mp4')
+                # model_name = Path(f'model_reset_{self.reset_count}_s{str(int(self.total_reward))}_id{self.instance_id}').with_suffix('.mp4')
 
-            os.rename(self.video_path, base_dir / full_name)
-            os.rename(self.model_video_path, base_dir / model_name)
-
+                os.rename(self.video_path, base_dir / full_name)
+                # os.rename(self.model_video_path, base_dir / model_name)
+            except Exception as e:
+                    print(f"Error saving/renaming video: {e}")
         if done:
             self.all_runs.append(self.progress_reward)
-            with open(self.s_path / Path(f'all_runs_{self.instance_id}.json'), 'w') as f:
-                json.dump(self.all_runs, f)
-            pd.DataFrame(self.agent_stats).to_csv(
-                self.s_path / Path(f'agent_stats_{self.instance_id}.csv.gz'), compression='gzip', mode='a')
+            try:
+                with open(self.s_path / Path(f'all_runs_{self.instance_id}.json'), 'w') as f:
+                    json.dump(self.all_runs, f)
+                pd.DataFrame(self.agent_stats).to_csv(
+                    self.s_path / Path(f'agent_stats_{self.instance_id}.csv.gz'), compression='gzip', mode='a')
+            except Exception as e:
+                    print(f"Error outputing json/csv dump: {e}")
 
     def read_m(self, addr):
         return self.pyboy.get_memory_value(addr)
@@ -512,8 +565,21 @@ class RedGymEnv(Env):
     def get_caught_poke(self):
         return sum([self.bit_count(self.read_m(a)) for a in CAUGHT_POKEMONS_ADDRESSES])
 
+    # I'm not sure what this is doing...
     def read_party(self):
         return [self.read_m(addr) for addr in PARTY_ADDRESSES]
+
+    def read_party_details(self):
+        i = 0
+        while i in range(6):
+            self.party[i].set_id(self.read_m(PARTY_ADDRESSES[i]))
+            self.party[i].set_current_hp(self.read_hp(HP_ADDRESSES[i]))
+            self.party[i].set_max_hp(self.read_hp(MAX_HP_ADDRESSES[i]))
+            self.party[i].set_level(self.read_m(LEVELS_ADDRESSES[i]))
+            self.party[i].set_status(self.read_m(PARTY_STATUS_ADDRESSES[i]))
+
+            i += 1
+
 
     def update_heal_reward(self):
         cur_health = self.read_hp_fraction()
@@ -596,10 +662,10 @@ class RedGymEnv(Env):
             'badge': self.reward_scale*self.get_badges() * 6,
             #'op_poke': self.reward_scale*self.max_opponent_poke * 800,
             #'money': self.reward_scale* money * 3,
-            # Pokemon seen starts at 3
-            'seen_poke': self.reward_scale*(self.get_seen_poke()-3),
-            # Pokemon caught starts at 1
-            'caught_poke': self.reward_scale*(self.get_caught_poke()-1) * 2,
+            # Pokemon seen starts at 3 (subtract an extra 4 for the early part of the run)
+            'seen_poke': self.reward_scale*(max(self.get_seen_poke()-3-4,0)),
+            # Pokemon caught starts at 1 (subtract an extra to balance the early game)
+            'caught_poke': self.reward_scale*(max(self.get_caught_poke()-1-2,0)) * 2,
             'explore': self.reward_scale * self.get_knn_reward()
         }
 

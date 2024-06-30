@@ -14,7 +14,7 @@ from tensorboard_callback import TensorboardCallback
 from stream_agent_wrapper import StreamWrapper
 
 EP_LENGTH = 2048 * 10 # How many steps per episode
-NUM_CPU = 12  # Also sets the number of episodes per training iteration
+NUM_CPU = 16  # Also sets the number of episodes per training iteration
 # PPO_DEVICE = 'cpu'
 PPO_DEVICE = 'cuda'
 STREAM_USER = 'joshhsoj1902'
@@ -60,8 +60,8 @@ if __name__ == '__main__':
     previous_session_file_name = ''
 
     env_config = {
-                'headless': True, 'save_final_state': True, 'early_stop': False, 'add_score': True,
-                'action_freq': 24, 'init_state': '../has_pokedex_nballs.state', 'max_steps': EP_LENGTH,
+                'headless': True, 'save_final_state': True, 'early_stop': False, 'fancy_video': True,
+                'action_freq': 24, 'init_state': '../has_pokedex_nballs_battle.state', 'max_steps': EP_LENGTH,
                 'print_rewards': True, 'save_video': True, 'fast_video': True, 'session_path': sess_path,
                 'gb_path': '../PokemonRed.gb', 'debug': True, 'sim_frame_dist': 2_000_000.0,
                 'use_screen_explore': False, 'reward_scale': 4, 'extra_buttons': False,

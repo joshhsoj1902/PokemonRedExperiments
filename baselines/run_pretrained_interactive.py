@@ -29,7 +29,7 @@ if __name__ == '__main__':
     ep_length = 2**23
 
     env_config = {
-                'headless': False, 'save_final_state': True, 'early_stop': False, 'add_score': True,
+                'headless': False, 'save_final_state': True, 'early_stop': False, 'fancy_video': False,
                 'action_freq': 24, 'init_state': '../has_pokedex_nballs.state', 'max_steps': ep_length,
                 'print_rewards': True, 'save_video': False, 'fast_video': True, 'session_path': sess_path,
                 'gb_path': '../PokemonRed.gb', 'debug': True, 'sim_frame_dist': 2_000_000.0, 'extra_buttons': True,
