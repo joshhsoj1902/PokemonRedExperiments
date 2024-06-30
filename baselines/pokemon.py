@@ -1,28 +1,64 @@
+from memory_addresses import *
+
+# Pokemons is a class for interacting with all Pokemon in the game
+class Pokemons:
+    def __init__(self, emulator):
+        self.emulator = emulator
+
+    def get_party_size(self):
+        return self.emulator.read_m(PARTY_SIZE_ADDRESS)
+
+    def get_current_party(self):
+        i = 0
+        party = []
+        while i in range(self.get_party_size()):
+            party.append(Pokemon(i,self.emulator))
+            i+=1
+        return party
+
+    def get_current_party_pokemon_ids(self):
+        return [self.emulator.read_m(addr) for addr in PARTY_ADDRESSES]
+
+    def get_avg_party_level(self):
+        poke_levels = [max(self.emulator.read_m(a) - 2, 0) for a in LEVELS_ADDRESSES]
+        return sum(poke_levels)/(max(self.get_party_size(),1))
+
+    def get_total_party_level(self):
+        poke_levels = [max(self.emulator.read_m(a) - 2, 0) for a in LEVELS_ADDRESSES]
+        return max(sum(poke_levels), 0) # subtract starting pokemon level
+
+    def get_seen_poke(self):
+        return sum([self.bit_count(self.emulator.read_m(a)) for a in SEEN_POKEMONS_ADDRESSES])
+
+    def get_caught_poke(self):
+        return sum([self.bit_count(self.emulator.read_m(a)) for a in CAUGHT_POKEMONS_ADDRESSES])
+
+# Pokemon is a class for interacting with a single Pokemon
 class Pokemon:
-    def __init__(self):
-        self.id = 0
-        self.level = 0
-        self.current_hp = 0
-        self.max_hp = 0
-        self.status = 0
+    def __init__(self, index, emulator):
+        self.index = index
+        self.emulator = emulator
 
-    def set_id(self, id):
-        self.id = id
+    def get_id(self):
+        return self.emulator.read_m(PARTY_ADDRESSES[self.index])
 
-    def set_level(self, level):
-        self.level = level
+    def get_level(self):
+        return self.emulator.read_m(LEVELS_ADDRESSES[self.index])
 
-    def set_current_hp(self, current_hp):
-        self.current_hp = current_hp
+    def get_current_hp(self):
+        return read_hp(self.emulator,HP_ADDRESSES[self.index])
 
-    def set_max_hp(self, max_hp):
-        self.max_hp = max_hp
+    def get_max_hp(self):
+        return read_hp(self.emulator,MAX_HP_ADDRESSES[self.index])
 
-    def set_status(self, status):
-        self.status = status
+    def get_status(self):
+        return self.emulator.read_m(PARTY_STATUS_ADDRESSES[self.index])
 
     def get_pokemon_name(self):
-        return get_pokemon_name(self.id)
+        return get_pokemon_name(self.get_id())
+
+def read_hp(emulator, start):
+    return 256 * emulator.read_m(start) + emulator.read_m(start+1)
 
 def get_pokemon_status(status_id):
     match status_id:

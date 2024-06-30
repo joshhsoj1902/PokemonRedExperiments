@@ -24,7 +24,9 @@ from memory_addresses import *
 
 import cv2
 
-from pokemon import Pokemon
+from pokemon import Pokemons
+
+from emulator import Emulator
 
 
 class RedGymEnv(Env):
@@ -116,6 +118,9 @@ class RedGymEnv(Env):
 
         self.screen = self.pyboy.botsupport_manager().screen()
 
+        self.emulator = Emulator(self.pyboy)
+        self.pokemons = Pokemons(self.emulator)
+
         if not config['headless']:
             self.pyboy.set_emulation_speed(6)
 
@@ -175,12 +180,6 @@ class RedGymEnv(Env):
         self.total_reward = sum([val for _, val in self.progress_reward.items()])
         self.reset_count += 1
 
-        self.party = []
-        i = 0
-        while i in range(6):
-            self.party.append(Pokemon())
-            i += 1
-
 
         return self.render(), {}
 
@@ -233,10 +232,11 @@ class RedGymEnv(Env):
             i = 0
             render_row = 10
             render_col = screen_right_edge + 5
-            while i in range(self.party_size):
-                game_pixels_render = cv2.putText(game_pixels_render.copy(),f'{self.party[i].get_pokemon_name()} lvl: {self.party[i].level}',(render_col,render_row), font, 0.8,(255,0,0),1)
+            party = self.pokemons.get_current_party()
+            for pokemon in party:
+                game_pixels_render = cv2.putText(game_pixels_render.copy(),f'{pokemon.get_pokemon_name()} lvl: {pokemon.get_level()}',(render_col,render_row), font, 0.8,(255,0,0),1)
                 render_row += 10
-                game_pixels_render = cv2.putText(game_pixels_render.copy(),f'hp: {self.party[i].current_hp}/{self.party[i].max_hp} status: {self.party[i].status}',(render_col,render_row), font, 0.8,(255,0,0),1)
+                game_pixels_render = cv2.putText(game_pixels_render.copy(),f'hp: {pokemon.get_current_hp()}/{pokemon.get_max_hp()} status: {pokemon.get_status()}',(render_col,render_row), font, 0.8,(255,0,0),1)
                 render_row += 15
                 i+=1
 
@@ -244,9 +244,9 @@ class RedGymEnv(Env):
             render_row = screen_bottom_edge + 30
             render_col = screen_right_edge + 5
 
-            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Seen: {self.get_seen_poke()}/151',(render_col,render_row), font, 0.8,(255,0,0),1)
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Seen: {self.pokemons.get_seen_poke()}/151',(render_col,render_row), font, 0.8,(255,0,0),1)
             render_row += 10
-            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Caught: {self.get_caught_poke()}/151',(render_col,render_row), font, 0.8,(255,0,0),1)
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Caught: {self.pokemons.get_caught_poke()}/151',(render_col,render_row), font, 0.8,(255,0,0),1)
             render_row += 10
             game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Badges: {self.get_badges()}/8',(render_col,render_row), font, 0.8,(255,0,0),1)
             render_row += 10
@@ -275,9 +275,7 @@ class RedGymEnv(Env):
             self.update_seen_coords()
 
         self.update_heal_reward()
-        self.party_size = self.read_m(PARTY_SIZE_ADDRESS)
-
-        self.read_party_details()
+        self.party_size = self.emulator.read_m(PARTY_SIZE_ADDRESS)
 
         # self.update_money_reward()
 
@@ -332,10 +330,10 @@ class RedGymEnv(Env):
             print(f"Error adding frame to video: {e}")
 
     def append_agent_stats(self, action):
-        x_pos = self.read_m(X_POS_ADDRESS)
-        y_pos = self.read_m(Y_POS_ADDRESS)
-        map_n = self.read_m(MAP_N_ADDRESS)
-        levels = [self.read_m(a) for a in LEVELS_ADDRESSES]
+        x_pos = self.emulator.read_m(X_POS_ADDRESS)
+        y_pos = self.emulator.read_m(Y_POS_ADDRESS)
+        map_n = self.emulator.read_m(MAP_N_ADDRESS)
+        levels = [self.emulator.read_m(a) for a in LEVELS_ADDRESSES]
         if self.use_screen_explore:
             expl = ('frames', self.knn_index.get_current_count())
         else:
@@ -344,12 +342,12 @@ class RedGymEnv(Env):
             'step': self.step_count, 'x': x_pos, 'y': y_pos, 'map': map_n,
             'map_location': self.get_map_location(map_n),
             'last_action': action,
-            'pcount': self.read_m(PARTY_SIZE_ADDRESS),
-            'pseen': self.get_seen_poke(),
-            'pcaught': self.get_caught_poke(),
+            'pcount': self.emulator.read_m(PARTY_SIZE_ADDRESS),
+            'pseen': self.pokemons.get_seen_poke(),
+            'pcaught': self.pokemons.get_caught_poke(),
             'levels': levels,
             'levels_sum': sum(levels),
-            'ptypes': self.read_party(),
+            'ptypes': self.pokemons.get_current_party_pokemon_ids(),
             'hp': self.read_hp_fraction(),
             expl[0]: expl[1],
             'deaths': self.died_count,
@@ -361,7 +359,7 @@ class RedGymEnv(Env):
 
     def update_frame_knn_index(self, frame_vec):
 
-        if self.get_levels_sum() >= 22 and not self.levels_satisfied:
+        if self.pokemons.get_total_party_level() >= 26 and not self.levels_satisfied:
             self.levels_satisfied = True
             self.base_explore = self.knn_index.get_current_count()
             self.init_knn()
@@ -381,11 +379,11 @@ class RedGymEnv(Env):
                 )
 
     def update_seen_coords(self):
-        x_pos = self.read_m(X_POS_ADDRESS)
-        y_pos = self.read_m(Y_POS_ADDRESS)
-        map_n = self.read_m(MAP_N_ADDRESS)
+        x_pos = self.emulator.read_m(X_POS_ADDRESS)
+        y_pos = self.emulator.read_m(Y_POS_ADDRESS)
+        map_n = self.emulator.read_m(MAP_N_ADDRESS)
         coord_string = f"x:{x_pos} y:{y_pos} m:{map_n}"
-        if self.get_levels_sum() >= 22 and not self.levels_satisfied:
+        if self.pokemons.get_total_party_level() >= 26 and not self.levels_satisfied:
             self.levels_satisfied = True
             self.base_explore = len(self.seen_coords)
             self.seen_coords = {}
@@ -527,24 +525,8 @@ class RedGymEnv(Env):
             except Exception as e:
                     print(f"Error outputing json/csv dump: {e}")
 
-    def read_m(self, addr):
-        return self.pyboy.get_memory_value(addr)
-
-    def read_bit(self, addr, bit: int) -> bool:
-        # add padding so zero will read '0b100000000' instead of '0b0'
-        return bin(256 + self.read_m(addr))[-bit-1] == '1'
-
-    def get_levels_avg(self):
-        poke_levels = [max(self.read_m(a) - 2, 0) for a in LEVELS_ADDRESSES]
-        return sum(poke_levels)/(max(self.party_size,1))
-
-    def get_levels_sum(self):
-        poke_levels = [max(self.read_m(a) - 2, 0) for a in LEVELS_ADDRESSES]
-        return max(sum(poke_levels) - 4, 0) # subtract starting pokemon level
-
     def get_levels_reward(self):
-        avg_poke_lvl=self.get_levels_avg()
-        self.max_level_rew = max(self.max_level_rew, avg_poke_lvl)
+        self.max_level_rew = max(self.max_level_rew, self.pokemons.get_avg_party_level())
         return self.max_level_rew
 
     def get_knn_reward(self):
@@ -557,37 +539,15 @@ class RedGymEnv(Env):
         return base + post
 
     def get_badges(self):
-        return self.bit_count(self.read_m(BADGE_COUNT_ADDRESS))
-
-    def get_seen_poke(self):
-        return sum([self.bit_count(self.read_m(a)) for a in SEEN_POKEMONS_ADDRESSES])
-
-    def get_caught_poke(self):
-        return sum([self.bit_count(self.read_m(a)) for a in CAUGHT_POKEMONS_ADDRESSES])
-
-    # I'm not sure what this is doing...
-    def read_party(self):
-        return [self.read_m(addr) for addr in PARTY_ADDRESSES]
-
-    def read_party_details(self):
-        i = 0
-        while i in range(6):
-            self.party[i].set_id(self.read_m(PARTY_ADDRESSES[i]))
-            self.party[i].set_current_hp(self.read_hp(HP_ADDRESSES[i]))
-            self.party[i].set_max_hp(self.read_hp(MAX_HP_ADDRESSES[i]))
-            self.party[i].set_level(self.read_m(LEVELS_ADDRESSES[i]))
-            self.party[i].set_status(self.read_m(PARTY_STATUS_ADDRESSES[i]))
-
-            i += 1
-
+        return self.bit_count(self.emulator.read_m(BADGE_COUNT_ADDRESS))
 
     def update_heal_reward(self):
         cur_health = self.read_hp_fraction()
         # Get the current pokemon lvl and factor that into the heal calc
-        cur_health_pokemon_level = self.get_levels_sum()
+        cur_health_pokemon_level = self.pokemons.get_total_party_level()
         # if health increased and party size did not change
         if (cur_health > self.last_health and
-                self.read_m(PARTY_SIZE_ADDRESS) == self.party_size and
+                self.emulator.read_m(PARTY_SIZE_ADDRESS) == self.party_size and
                 cur_health_pokemon_level == self.last_health_pokemon_level):
             if self.last_health > 0:
                 heal_amount = cur_health - self.last_health
@@ -600,7 +560,7 @@ class RedGymEnv(Env):
         self.last_health_pokemon_level = cur_health_pokemon_level
 
     def update_money_reward(self):
-        cur_money = self.read_money()
+        cur_money = self.emulator.read_money()
         if cur_money > self.last_money_total:
             self.total_money_rew += cur_money - self.last_money_total
             self.last_money_total = cur_money
@@ -614,12 +574,12 @@ class RedGymEnv(Env):
         return max(
             sum(
                 [
-                    self.bit_count(self.read_m(i))
+                    self.bit_count(self.emulator.read_m(i))
                     for i in range(event_flags_start, event_flags_end)
                 ]
             )
             - base_event_flags
-            - int(self.read_bit(museum_ticket[0], museum_ticket[1])),
+            - int(self.emulator.read_bit(museum_ticket[0], museum_ticket[1])),
         0,
     )
 
@@ -627,16 +587,16 @@ class RedGymEnv(Env):
         # addresses from https://datacrystal.romhacking.net/wiki/Pok%C3%A9mon_Red/Blue:RAM_map
         # https://github.com/pret/pokered/blob/91dc3c9f9c8fd529bb6e8307b58b96efa0bec67e/constants/event_constants.asm
         '''
-        num_poke = self.read_m(0xD163)
+        num_poke = self.emulator.read_m(0xD163)
         poke_xps = [self.read_triple(a) for a in [0xD179, 0xD1A5, 0xD1D1, 0xD1FD, 0xD229, 0xD255]]
-        #money = self.read_money() - 975 # subtract starting money
-        seen_poke_count = sum([self.bit_count(self.read_m(i)) for i in range(0xD30A, 0xD31D)])
-        all_events_score = sum([self.bit_count(self.read_m(i)) for i in range(0xD747, 0xD886)])
+        #money = self.emulator.read_money() - 975 # subtract starting money
+        seen_poke_count = sum([self.bit_count(self.emulator.read_m(i)) for i in range(0xD30A, 0xD31D)])
+        all_events_score = sum([self.bit_count(self.emulator.read_m(i)) for i in range(0xD747, 0xD886)])
         oak_parcel = self.read_bit(0xD74E, 1)
         oak_pokedex = self.read_bit(0xD74B, 5)
-        opponent_level = self.read_m(0xCFF3)
+        opponent_level = self.emulator.read_m(0xCFF3)
         self.max_opponent_level = max(self.max_opponent_level, opponent_level)
-        enemy_poke_count = self.read_m(0xD89C)
+        enemy_poke_count = self.emulator.read_m(0xD89C)
         self.max_opponent_poke = max(self.max_opponent_poke, enemy_poke_count)
 
         if print_stats:
@@ -663,9 +623,9 @@ class RedGymEnv(Env):
             #'op_poke': self.reward_scale*self.max_opponent_poke * 800,
             #'money': self.reward_scale* money * 3,
             # Pokemon seen starts at 3 (subtract an extra 4 for the early part of the run)
-            'seen_poke': self.reward_scale*(max(self.get_seen_poke()-3-4,0)),
+            'seen_poke': self.reward_scale*(max(self.pokemons.get_seen_poke()-3-4,0)),
             # Pokemon caught starts at 1 (subtract an extra to balance the early game)
-            'caught_poke': self.reward_scale*(max(self.get_caught_poke()-1-2,0)) * 2,
+            'caught_poke': self.reward_scale*(max(self.pokemons.get_caught_poke()-1-2,0)) * 2,
             'explore': self.reward_scale * self.get_knn_reward()
         }
 
@@ -683,7 +643,7 @@ class RedGymEnv(Env):
 
     def update_max_op_level(self):
         # The first battle is vs a lvl5, so use it as a baseline
-        opponent_level = max([self.read_m(a) for a in OPPONENT_LEVELS_ADDRESSES]) -5
+        opponent_level = max([self.emulator.read_m(a) for a in OPPONENT_LEVELS_ADDRESSES]) -5
         self.max_opponent_level = max(self.max_opponent_level, opponent_level)
         return self.max_opponent_level
 
@@ -699,22 +659,22 @@ class RedGymEnv(Env):
         return hp_sum / max_hp_sum
 
     def read_hp(self, start):
-        return 256 * self.read_m(start) + self.read_m(start+1)
+        return 256 * self.emulator.read_m(start) + self.emulator.read_m(start+1)
 
     # built-in since python 3.10
     def bit_count(self, bits):
         return bin(bits).count('1')
 
     def read_triple(self, start_add):
-        return 256*256*self.read_m(start_add) + 256*self.read_m(start_add+1) + self.read_m(start_add+2)
+        return 256*256*self.emulator.read_m(start_add) + 256*self.emulator.read_m(start_add+1) + self.emulator.read_m(start_add+2)
 
     def read_bcd(self, num):
         return 10 * ((num >> 4) & 0x0f) + (num & 0x0f)
 
     def read_money(self):
-        return (100 * 100 * self.read_bcd(self.read_m(MONEY_ADDRESS_1)) +
-                100 * self.read_bcd(self.read_m(MONEY_ADDRESS_2)) +
-                self.read_bcd(self.read_m(MONEY_ADDRESS_3)))
+        return (100 * 100 * self.read_bcd(self.emulator.read_m(MONEY_ADDRESS_1)) +
+                100 * self.read_bcd(self.emulator.read_m(MONEY_ADDRESS_2)) +
+                self.read_bcd(self.emulator.read_m(MONEY_ADDRESS_3)))
 
     def get_map_location(self, map_idx):
         map_locations = {
