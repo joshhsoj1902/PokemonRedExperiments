@@ -27,11 +27,14 @@ class Pokemons:
         poke_levels = [max(self.emulator.read_m(a) - 2, 0) for a in LEVELS_ADDRESSES]
         return max(sum(poke_levels), 0) # subtract starting pokemon level
 
+    def get_total_party_xp(self):
+        return sum([p.get_xp() for p in self.get_current_party()])
+
     def get_seen_poke(self):
-        return sum([self.bit_count(self.emulator.read_m(a)) for a in SEEN_POKEMONS_ADDRESSES])
+        return sum([self.emulator.bit_count(self.emulator.read_m(a)) for a in SEEN_POKEMONS_ADDRESSES])
 
     def get_caught_poke(self):
-        return sum([self.bit_count(self.emulator.read_m(a)) for a in CAUGHT_POKEMONS_ADDRESSES])
+        return sum([self.emulator.bit_count(self.emulator.read_m(a)) for a in CAUGHT_POKEMONS_ADDRESSES])
 
 # Pokemon is a class for interacting with a single Pokemon
 class Pokemon:
@@ -57,6 +60,9 @@ class Pokemon:
     def get_pokemon_name(self):
         return get_pokemon_name(self.get_id())
 
+    def get_xp(self):
+        return self.emulator.read_triple(PARTY_XP_START_ADDRESSES[self.index])
+
 def read_hp(emulator, start):
     return 256 * emulator.read_m(start) + emulator.read_m(start+1)
 
@@ -70,13 +76,25 @@ def get_pokemon_status(status_id):
 def get_pokemon_name(id):
     match id:
         case 1:
-            return ''
+            return 'Rhydon'
         case 9:
             return 'Ivysaur'
         case 28:
             return 'Blastoise'
         case 36:
             return 'Pidgey'
+        case 112:
+            return 'Weedle'
+        case 113:
+            return 'Kakuna'
+        case 114:
+            return 'Beedrill'
+        case 123:
+            return 'Caterpie'
+        case 124:
+            return 'Metapod'
+        case 125:
+            return 'Butterfree'
         case 150:
             return 'Pidgeotto'
         case 151:
@@ -95,25 +113,18 @@ def get_pokemon_name(id):
             return 'Squirtle'
         case 178:
             return 'Charmeleon'
+        case 179:
+            return 'Wartortle'
         case 180:
             return 'Charizard'
-        case 188:
-            return 'Wartortle'
         case _:
             return f'unknown {id}'
 
 
-# Caterpie     123
-# Metapod      124
-# Butterfree   125
-# Weedle       112
-# Kakuna       113
-# Beedrill     114
-# Pidgey        36
-# Pidgeotto    150
-# Pidgeot      151
-# Rattata      165
-# Raticate     166
+
+
+
+
 # Spearow        5
 # Fearow        35
 # Ekans        108
@@ -205,7 +216,6 @@ def get_pokemon_name(id):
 # Koffing       55
 # Weezing      143
 # Rhyhorn       18
-# Rhydon         1
 # Chansey       40
 # Tangela       30
 # Kangaskhan     2

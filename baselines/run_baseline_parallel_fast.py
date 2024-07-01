@@ -12,6 +12,7 @@ from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
 from tensorboard_callback import TensorboardCallback
 from stream_agent_wrapper import StreamWrapper
+from video_callback import VideoCallback
 
 EP_LENGTH = 2048 * 10 # How many steps per episode
 NUM_CPU = 16  # Also sets the number of episodes per training iteration
@@ -114,7 +115,7 @@ if __name__ == '__main__':
     checkpoint_callback = CheckpointCallback(save_freq=EP_LENGTH, save_path=sess_path,
                                      name_prefix='poke')
 
-    callbacks = [checkpoint_callback, TensorboardCallback()]
+    callbacks = [checkpoint_callback, TensorboardCallback(), VideoCallback()]
 
     if use_wandb_logging:
         import wandb

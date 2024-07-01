@@ -28,6 +28,9 @@ from pokemon import Pokemons
 
 from emulator import Emulator
 
+FANCY_VIDEO_ADDED_X = 115
+FANCY_VIDEO_ADDED_Y = 150
+FANCY_VIDEO_SCALE = 2
 
 class RedGymEnv(Env):
     def __init__(
@@ -156,7 +159,7 @@ class RedGymEnv(Env):
             # self.model_video_path = base_dir / model_name
 
             if self.fancy_video:
-                self.full_frame_writer = media.VideoWriter(self.video_path, (259, 310), fps=60)
+                self.full_frame_writer = media.VideoWriter(self.video_path, ((144*FANCY_VIDEO_SCALE)+FANCY_VIDEO_ADDED_X, (160*FANCY_VIDEO_SCALE) + FANCY_VIDEO_ADDED_Y), fps=60)
             else:
                 self.full_frame_writer = media.VideoWriter(self.video_path, (144, 160), fps=60)
             self.full_frame_writer.__enter__()
@@ -214,19 +217,27 @@ class RedGymEnv(Env):
                     axis=0)
 
         if fancy_video and self.fancy_video:
+            game_pixels_render = np.repeat(np.repeat(game_pixels_render,FANCY_VIDEO_SCALE, axis=0), FANCY_VIDEO_SCALE, axis=1)
+
             screen_bottom_edge = game_pixels_render.shape[0]
             screen_right_edge = game_pixels_render.shape[1]
 
-            game_pixels_render = np.pad(game_pixels_render,((0,115),(0,150),(0,0)),'constant', constant_values=0)
+            game_pixels_render = np.pad(game_pixels_render,((0,FANCY_VIDEO_ADDED_X),(0,FANCY_VIDEO_ADDED_Y),(0,0)),'constant', constant_values=0)
             font = cv2.FONT_HERSHEY_PLAIN
 
             # Print reward details
             render_row = screen_bottom_edge + 10
             render_col = 2
             game_pixels_render = cv2.putText(game_pixels_render.copy(),"total: " + str(round(self.total_reward,2)),(render_col,render_row), font, 0.8,(255,0,0),1)
+            i = 0
             for key, val in self.progress_reward.items():
                 render_row = render_row + 10
                 game_pixels_render = cv2.putText(game_pixels_render.copy(),f'{key}: {val:5.2f}',(render_col,render_row), font, 0.8,(255,0,0),1)
+                i+=1
+                if i == 10:
+                    i = 0
+                    render_col = 140
+                    render_row = screen_bottom_edge + 10
 
             # Print party details
             i = 0
@@ -547,7 +558,7 @@ class RedGymEnv(Env):
         cur_health_pokemon_level = self.pokemons.get_total_party_level()
         # if health increased and party size did not change
         if (cur_health > self.last_health and
-                self.emulator.read_m(PARTY_SIZE_ADDRESS) == self.party_size and
+                # self.emulator.read_m(PARTY_SIZE_ADDRESS) == self.party_size and
                 cur_health_pokemon_level == self.last_health_pokemon_level):
             if self.last_health > 0:
                 heal_amount = cur_health - self.last_health
@@ -612,8 +623,9 @@ class RedGymEnv(Env):
 
         state_scores = {
             'event': self.reward_scale*self.update_max_event_rew(),
-            #'party_xp': self.reward_scale*0.1*sum(poke_xps),
-            'level': self.reward_scale*(self.get_levels_reward()-4)*2,
+            'party_xp': self.reward_scale*0.005*(self.pokemons.get_total_party_xp()-202),
+            'level': self.reward_scale*(self.get_levels_reward()-4)*0.00000001,
+            # 'level': self.reward_scale*(self.get_levels_reward()-4)*2,
             'heal': self.reward_scale*self.total_healing_rew*2,
             'money': self.reward_scale*self.total_money_rew *0.1,
             # Give a strong incentive to be where stronger level pokemon are. (the max level pokemon is lvl 65 at the end of the elite 4)
@@ -665,8 +677,8 @@ class RedGymEnv(Env):
     def bit_count(self, bits):
         return bin(bits).count('1')
 
-    def read_triple(self, start_add):
-        return 256*256*self.emulator.read_m(start_add) + 256*self.emulator.read_m(start_add+1) + self.emulator.read_m(start_add+2)
+    # def read_triple(self, start_add):
+    #     return 256*256*self.emulator.read_m(start_add) + 256*self.emulator.read_m(start_add+1) + self.emulator.read_m(start_add+2)
 
     def read_bcd(self, num):
         return 10 * ((num >> 4) & 0x0f) + (num & 0x0f)
