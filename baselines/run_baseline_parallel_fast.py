@@ -14,7 +14,7 @@ from tensorboard_callback import TensorboardCallback
 from stream_agent_wrapper import StreamWrapper
 from video_callback import VideoCallback
 
-EP_LENGTH = 2048 * 10 # How many steps per episode
+EP_LENGTH = 2048 * 12 # How many steps per episode
 NUM_CPU = 16  # Also sets the number of episodes per training iteration
 # PPO_DEVICE = 'cpu'
 PPO_DEVICE = 'cuda'

@@ -28,9 +28,14 @@ from pokemon import Pokemons
 
 from emulator import Emulator
 
-FANCY_VIDEO_ADDED_X = 115
-FANCY_VIDEO_ADDED_Y = 150
+EMULATOR_VIDEO_X = 160
+EMULATOR_VIDEO_Y = 144
 FANCY_VIDEO_SCALE = 2
+# Must be divisible by 9
+# We want a 10/9 aspect ratio. To stream to twitch we also need the final Y axis to be divisible by 2,
+# which means this Y needs to be divisible by both 9 and 2
+FANCY_VIDEO_ADDED_Y = 9 * 2 * 9 #162
+FANCY_VIDEO_ADDED_X = int((FANCY_VIDEO_ADDED_Y/9)*10)
 
 class RedGymEnv(Env):
     def __init__(
@@ -159,9 +164,9 @@ class RedGymEnv(Env):
             # self.model_video_path = base_dir / model_name
 
             if self.fancy_video:
-                self.full_frame_writer = media.VideoWriter(self.video_path, ((144*FANCY_VIDEO_SCALE)+FANCY_VIDEO_ADDED_X, (160*FANCY_VIDEO_SCALE) + FANCY_VIDEO_ADDED_Y), fps=60)
+                self.full_frame_writer = media.VideoWriter(self.video_path, ((EMULATOR_VIDEO_Y*FANCY_VIDEO_SCALE)+FANCY_VIDEO_ADDED_Y, (EMULATOR_VIDEO_X*FANCY_VIDEO_SCALE) + FANCY_VIDEO_ADDED_X), fps=60)
             else:
-                self.full_frame_writer = media.VideoWriter(self.video_path, (144, 160), fps=60)
+                self.full_frame_writer = media.VideoWriter(self.video_path, (EMULATOR_VIDEO_Y, EMULATOR_VIDEO_X), fps=60)
             self.full_frame_writer.__enter__()
             # self.model_frame_writer = media.VideoWriter(self.model_video_path, self.output_full[:2], fps=60)
             # self.model_frame_writer.__enter__()
@@ -222,7 +227,7 @@ class RedGymEnv(Env):
             screen_bottom_edge = game_pixels_render.shape[0]
             screen_right_edge = game_pixels_render.shape[1]
 
-            game_pixels_render = np.pad(game_pixels_render,((0,FANCY_VIDEO_ADDED_X),(0,FANCY_VIDEO_ADDED_Y),(0,0)),'constant', constant_values=0)
+            game_pixels_render = np.pad(game_pixels_render,((0,FANCY_VIDEO_ADDED_Y),(0,FANCY_VIDEO_ADDED_X),(0,0)),'constant', constant_values=0)
             font = cv2.FONT_HERSHEY_PLAIN
 
             # Print reward details
