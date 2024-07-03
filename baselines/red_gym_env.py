@@ -729,10 +729,10 @@ class RedGymEnv(Env):
 
         state_scores = {
             'event': self.reward_scale*self.update_max_event_rew(),
-            'party_xp': self.reward_scale*0.005*(self.pokemons.get_total_party_xp()-202),
+            'party_xp': self.reward_scale*0.001*(self.pokemons.get_total_party_xp()-202),
             'level': self.reward_scale*(self.get_levels_reward()-4)*0.00000001,
             # 'level': self.reward_scale*(self.get_levels_reward()-4)*2,
-            'heal': self.reward_scale*self.total_healing_rew*2,
+            'heal': self.reward_scale*self.total_healing_rew,
             'money': self.reward_scale*self.total_money_rew *0.1,
             # Give a strong incentive to be where stronger level pokemon are. (the max level pokemon is lvl 65 at the end of the elite 4)
             'op_lvl': self.reward_scale*(op_lvl*op_lvl*0.2),
@@ -741,9 +741,9 @@ class RedGymEnv(Env):
             #'op_poke': self.reward_scale*self.max_opponent_poke * 800,
             #'money': self.reward_scale* money * 3,
             # Pokemon seen starts at 3 (subtract an extra 4 for the early part of the run)
-            'seen_poke': self.reward_scale*(max(self.pokemons.get_seen_poke()-3-4,0)),
+            'seen_poke': self.reward_scale*(1.3 ** max(self.pokemons.get_seen_poke()-3,0)),
             # Pokemon caught starts at 1 (subtract an extra to balance the early game)
-            'caught_poke': self.reward_scale*(max(self.pokemons.get_caught_poke()-1-2,0)) * 2,
+            'caught_poke': self.reward_scale*(2 ** max(self.pokemons.get_caught_poke()-1,0)),
             'explore': self.reward_scale * self.get_knn_reward()
         }
 
