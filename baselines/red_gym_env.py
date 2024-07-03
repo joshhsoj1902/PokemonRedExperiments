@@ -2,6 +2,7 @@
 import sys
 import uuid
 import os
+import io
 from math import floor, sqrt
 import json
 from pathlib import Path
@@ -28,6 +29,8 @@ from pokemon import Pokemons
 
 from emulator import Emulator
 
+from livestream import Livesteam_Client
+
 EMULATOR_VIDEO_X = 160
 EMULATOR_VIDEO_Y = 144
 FANCY_VIDEO_SCALE = 2
@@ -37,10 +40,13 @@ FANCY_VIDEO_SCALE = 2
 FANCY_VIDEO_ADDED_Y = 9 * 2 * 9 #162
 FANCY_VIDEO_ADDED_X = int((FANCY_VIDEO_ADDED_Y/9)*10)
 
+LIVESTREAM_STEPS_PER_FRAME = 50
+
 class RedGymEnv(Env):
     def __init__(
         self, config=None):
 
+        self.rank = config['rank']
         self.debug = config['debug']
         self.s_path = config['session_path']
         self.save_final_state = config['save_final_state']
@@ -55,6 +61,8 @@ class RedGymEnv(Env):
         self.early_stopping = config['early_stop']
         self.save_video = config['save_video']
         self.fast_video = config['fast_video']
+        self.stream_client = Livesteam_Client()
+
         self.video_interval = 256 * self.act_freq
         self.downsample_factor = 2
         self.frame_stacks = 3
@@ -188,6 +196,9 @@ class RedGymEnv(Env):
         self.total_reward = sum([val for _, val in self.progress_reward.items()])
         self.reset_count += 1
 
+        self.data_steps = []
+        self.data_rewards = {}
+
 
         return self.render(), {}
 
@@ -201,7 +212,7 @@ class RedGymEnv(Env):
     def init_map_mem(self):
         self.seen_coords = {}
 
-    def render(self, reduce_res=True, add_memory=True, update_mem=True, fancy_video=False):
+    def render(self, reduce_res=True, add_memory=True, update_mem=True, fancy_video=False, livestream=False):
         game_pixels_render = self.screen.screen_ndarray() # (144, 160, 3)
         if reduce_res:
             game_pixels_render = (255*resize(game_pixels_render, self.output_shape)).astype(np.uint8)
@@ -220,6 +231,72 @@ class RedGymEnv(Env):
                         rearrange(self.recent_frames, 'f h w c -> (f h) w c')
                     ),
                     axis=0)
+
+        if livestream:
+            game_pixels_render = np.repeat(np.repeat(game_pixels_render,FANCY_VIDEO_SCALE, axis=0), FANCY_VIDEO_SCALE, axis=1)
+            screen_bottom_edge = game_pixels_render.shape[0]
+            screen_right_edge = game_pixels_render.shape[1]
+
+            game_pixels_render = np.pad(game_pixels_render,((0,FANCY_VIDEO_ADDED_Y),(0,FANCY_VIDEO_ADDED_X),(0,0)),'constant', constant_values=0)
+            font = cv2.FONT_HERSHEY_PLAIN
+
+            # Print reward details
+
+            # 1.6 == 160
+            plt.rcParams.update({'font.size': 5.5})
+            plt.tight_layout()
+            fig, ax = plt.subplots(figsize=(3.2, 1.58))
+            ax.stackplot(self.data_steps, self.data_rewards.values(),
+            labels=self.data_rewards.keys(), alpha=0.8)
+            ax.legend(loc='upper left', reverse=True)
+            # ax.set_title('World population')
+            ax.set_xlabel('Step')
+            ax.set_ylabel('Score')
+            plt.subplots_adjust(top=0.95)
+
+            # If we haven't already shown or saved the plot, then we need to
+            # draw the figure first...
+            fig.canvas.draw()
+
+            # Now we can save it to a numpy array.
+            data = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+
+            # print (f"1 livestream render, What is the new shape? {data.shape}")
+
+            data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            plt.close(fig)
+            # data = data.reshape((120,160,3))
+            # data = cv2.resize(data, dsize=(160,120), interpolation=cv2.INTER_CUBIC)
+
+            render_row = screen_bottom_edge + 2
+            render_col = 0
+
+            game_pixels_render[render_row:render_row+data.shape[0],render_col:render_col+data.shape[1]] = data
+
+            # Print party details
+            i = 0
+            render_row = 10
+            render_col = screen_right_edge + 5
+            party = self.pokemons.get_current_party()
+            for pokemon in party:
+                game_pixels_render = cv2.putText(game_pixels_render.copy(),f'{pokemon.get_pokemon_name()} lvl: {pokemon.get_level()}',(render_col,render_row), font, 0.8,(255,0,0),1)
+                render_row += 10
+                game_pixels_render = cv2.putText(game_pixels_render.copy(),f'hp: {pokemon.get_current_hp()}/{pokemon.get_max_hp()} status: {pokemon.get_status()}',(render_col,render_row), font, 0.8,(255,0,0),1)
+                render_row += 15
+                i+=1
+
+            # Print misc statuses
+            render_row = screen_bottom_edge + 30
+            render_col = screen_right_edge + 5
+
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Seen: {self.pokemons.get_seen_poke()}/151',(render_col,render_row), font, 0.8,(255,0,0),1)
+            render_row += 10
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Caught: {self.pokemons.get_caught_poke()}/151',(render_col,render_row), font, 0.8,(255,0,0),1)
+            render_row += 10
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Badges: {self.get_badges()}/8',(render_col,render_row), font, 0.8,(255,0,0),1)
+            render_row += 10
+            game_pixels_render = cv2.putText(game_pixels_render.copy(),f'Team wipes: {self.died_count}',(render_col,render_row), font, 0.8,(255,0,0),1)
+
 
         if fancy_video and self.fancy_video:
             game_pixels_render = np.repeat(np.repeat(game_pixels_render,FANCY_VIDEO_SCALE, axis=0), FANCY_VIDEO_SCALE, axis=1)
@@ -340,10 +417,17 @@ class RedGymEnv(Env):
 
     def add_video_frame(self):
         try:
-            self.full_frame_writer.add_image(self.render(reduce_res=False, update_mem=False, fancy_video=True))
-            # self.model_frame_writer.add_image(self.render(reduce_res=True, update_mem=False))
+            self.full_frame_writer.add_image(self.render(reduce_res=False, update_mem=False, fancy_video=True, livestream=False))
         except Exception as e:
             print(f"Error adding frame to video: {e}")
+
+        # TODO: This is super slow to do, we should limit how many frames we generate.
+        if self.step_count % LIVESTREAM_STEPS_PER_FRAME == 0:
+            try:
+                self.stream_client.send_frame(self.rank, self.total_reward, self.render(reduce_res=False, update_mem=False, fancy_video=False, livestream=True))
+            except Exception as e:
+                print(f"Error adding frame to livestream: {e}")
+
 
     def append_agent_stats(self, action):
         x_pos = self.emulator.read_m(X_POS_ADDRESS)
@@ -418,6 +502,10 @@ class RedGymEnv(Env):
             # self.save_screenshot('neg_reward')
 
         self.total_reward = new_total
+
+        if self.step_count % 100 == 0:
+            self.update_chart_data()
+
         return (new_step,
                    (new_prog[0]-old_prog[0],
                     new_prog[1]-old_prog[1],
@@ -433,6 +521,19 @@ class RedGymEnv(Env):
                #(prog['events'],
                # prog['levels'] + prog['party_xp'],
                # prog['explore'])
+
+    # Update the data used in the score progression chart
+    def update_chart_data(self):
+        self.data_steps.append(self.step_count)
+        for key, val in self.progress_reward.items():
+            if key == "dead":
+                # Graphing & stacking negative numbers doesn't really work
+                continue
+            if key in self.data_rewards:
+                self.data_rewards[key].append(val)
+            else:
+                self.data_rewards[key] = [val]
+
 
     def create_exploration_memory(self):
         w = self.output_shape[1]

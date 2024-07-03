@@ -2,12 +2,13 @@ from stable_baselines3.common.callbacks import BaseCallback
 
 class VideoCallback(BaseCallback):
     """
-    A custom callback that derives from ``BaseCallback``.
+    A custom callback that derives from ``BaseCallback`` used for various video management things.
 
     :param verbose: (int) Verbosity level 0: not output 1: info 2: debug
     """
-    def __init__(self, verbose=0):
+    def __init__(self, stream, verbose=0, ):
         super(VideoCallback, self).__init__(verbose)
+        self.stream = stream
         # Those variables will be accessible in the callback
         # (they are defined in the base class)
         # The RL model
@@ -51,6 +52,12 @@ class VideoCallback(BaseCallback):
 
         :return: (bool) If the callback returns False, training is aborted early.
         """
+
+        # The render creates a new frame every 50 steps. By subtracting 5 here we also update
+        # every 50 steps, but we do it 5 steps after the frame was rendered
+        if (self.n_calls-5) % 50 == 0:
+            self.stream.update_stream_frame()
+
         return True
 
     def _on_rollout_end(self) -> None:

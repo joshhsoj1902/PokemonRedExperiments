@@ -12,3 +12,7 @@ session_*
 PokemonRed.gb.state
 venv*
 .python-version
+pylivestream.json
+stream_to_twitch.sh
+pokemon.mp3
+livestream.jpeg

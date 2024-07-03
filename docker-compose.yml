@@ -9,7 +9,49 @@ services:
     image: joshhsoj1902/pokemonredexperiments:latest
     volumes:
       - ./:/pokemon
-    command: sh -c 'echo "test1" && sleep 60 && echo "test2" && cd /pokemon/baselines/session_docker && echo "test3" && tensorboard --bind_all --logdir  .'
+    command: sh -c 'echo "test1" && sleep 60 && echo "test2" && cd /pokemon/baselines/session_fast && echo "test3" && tensorboard --bind_all --logdir  .'
     ports:
       - 6006:6006
+    restart: always
+  livestream:
+    image: jrottenberg/ffmpeg:7-scratch
+    volumes:
+      - ./:/pokemon
+    command:
+      [
+        "-loglevel",
+        "error",
+        "-y",
+        "-re",
+        "-stream_loop",
+        "-1",
+        "-f",
+        "image2",
+        "-i",
+        "/pokemon/baselines/session_fast/livestream.jpeg",
+        "-i",
+        "/pokemon/pokemon.mp3",
+        "-codec:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-preset",
+        "veryfast",
+        "-b:v",
+        "1200k",
+        "-r",
+        "30.0",
+        "-g",
+        "60.0",
+        "-maxrate",
+        "1200k",
+        "-bufsize",
+        "600k",
+        "-shortest",
+        "-strict",
+        "experimental",
+        "-f",
+        "flv",
+        "rtmp://ymq03.contribute.live-video.net/app/---",
+      ]
     restart: always

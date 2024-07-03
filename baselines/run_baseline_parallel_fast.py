@@ -4,6 +4,8 @@ import time
 import os
 import shutil
 import pathlib
+import threading
+
 from red_gym_env import RedGymEnv
 from stable_baselines3 import PPO
 from stable_baselines3.common import env_checker
@@ -13,6 +15,8 @@ from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
 from tensorboard_callback import TensorboardCallback
 from stream_agent_wrapper import StreamWrapper
 from video_callback import VideoCallback
+
+from livestream import Livestream_Server
 
 EP_LENGTH = 2048 * 12 # How many steps per episode
 NUM_CPU = 16  # Also sets the number of episodes per training iteration
@@ -39,6 +43,7 @@ def make_env(rank, env_conf, seed=0):
 
 
     def _init():
+        env_conf['rank'] = rank
         env = StreamWrapper(
             RedGymEnv(env_conf),
             stream_metadata = {
@@ -59,6 +64,8 @@ if __name__ == '__main__':
     sess_path = Path(f'session_fast')
 
     previous_session_file_name = ''
+
+    stream = Livestream_Server(sess_path)
 
     env_config = {
                 'headless': True, 'save_final_state': True, 'early_stop': False, 'fancy_video': True,
@@ -115,7 +122,7 @@ if __name__ == '__main__':
     checkpoint_callback = CheckpointCallback(save_freq=EP_LENGTH, save_path=sess_path,
                                      name_prefix='poke')
 
-    callbacks = [checkpoint_callback, TensorboardCallback(), VideoCallback()]
+    callbacks = [checkpoint_callback, TensorboardCallback(), VideoCallback(stream)]
 
     if use_wandb_logging:
         import wandb
@@ -157,6 +164,11 @@ if __name__ == '__main__':
 
     pathlib.PosixPath = temp
     print('main 10')
+
+    livestream_server_thread = threading.Thread(target=stream.start_server, name="Stream Server")
+    livestream_server_thread.start()
+
+    print('main 11')
 
     # run for up to 5k episodes
     model.learn(total_timesteps=(EP_LENGTH)*NUM_CPU*5000, callback=CallbackList(callbacks))
